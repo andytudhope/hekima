@@ -66,7 +66,7 @@ export default function Home() {
       </div>
 
       <div className="text-xl text-center text-white space-y-4 mt-8">
-        <p className="max-w-[600px]">In order to read this unique work, you need to purchase an NFT. This costs $13. You'll need a <a href="https://www.alchemy.com/overviews/web3-wallets" target="_blank" className="underline font-bold">web3 wallet</a>.</p>
+        <p className="max-w-[600px]">In order to read this unique work, you need to purchase an NFT. This costs $13. You&apos;ll need a <a href="https://www.alchemy.com/overviews/web3-wallets" target="_blank" className="underline font-bold">web3 wallet</a>.</p>
       </div>
 
       <div className="mt-10 flex flex-col items-center space-y-6 w-full max-w-7xl">
