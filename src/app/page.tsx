@@ -176,6 +176,7 @@ export default function Home() {
           width={600}
           height={600}
           className="object-contain"
+          unoptimized
         />
       </div>
 
