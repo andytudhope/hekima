@@ -1,12 +1,27 @@
 "use client";
 
+import { useEffect } from "react";
 import Image from "next/image";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
-import { useAccount, useReadContract } from "wagmi";
+import {
+  useAccount,
+  useReadContract,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+  useSignTypedData,
+} from "wagmi";
+import { parseUnits } from "viem";
 import PDFViewer from "@/components/PDFViewer";
 
-const NFT_CONTRACT = "0xb092a63840b1b319d40ee59096fb8b3dd708d1b6";
+const BASE_CONTRACT = "0xb092a63840b1b319d40ee59096fb8b3dd708d1b6"; // Legacy Base ERC1155 contract
+const BASE_CHAIN_ID = 8453;
+
+const CELO_CHAIN_ID = 42220;
+const CELO_CONTRACT = "0xfeb246a925e6b4ec5f66e2850bf149945be34604";
+const USDC_ADDRESS = "0xcebA9300f2b948710d2653dD7B07f33A8B32118C" as `0x${string}`;
 const TOKEN_ID = 1;
+const USDC_DECIMALS = 6;
+const PRICE = parseUnits("13", USDC_DECIMALS);
 
 const erc1155Abi = [
   {
@@ -22,21 +37,135 @@ const erc1155Abi = [
   },
 ];
 
-export default function Home() {
-  const { address, isConnected } = useAccount();
+const hekimaAbi = [
+  {
+    name: "permitAndMint",
+    type: "function",
+    stateMutability: "nonpayable",
+    inputs: [
+      { name: "_amount", type: "uint256" },
+      { name: "deadline", type: "uint256" },
+      { name: "v", type: "uint8" },
+      { name: "r", type: "bytes32" },
+      { name: "s", type: "bytes32" },
+    ],
+    outputs: [],
+  },
+  {
+    name: "balanceOf",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
 
-  const { data: balance, isLoading } = useReadContract({
-    address: NFT_CONTRACT,
+const usdcAbi = [
+  {
+    name: "nonces",
+    type: "function",
+    stateMutability: "view",
+    inputs: [{ name: "owner", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+  },
+];
+
+export default function Home() {
+  const { address, isConnected, chain } = useAccount();
+  const { data: hash, writeContract } = useWriteContract();
+  const { signTypedDataAsync } = useSignTypedData();
+  const { isLoading: isMinting, isSuccess: minted } = useWaitForTransactionReceipt({ hash });
+
+  const baseNFT = useReadContract({
+    address: BASE_CONTRACT,
     abi: erc1155Abi,
     functionName: "balanceOf",
     args: [address ?? "0x", BigInt(TOKEN_ID)],
-    chainId: 8453, // Base Mainnet
-    query: {
-      enabled: Boolean(address),
-    },
+    chainId: BASE_CHAIN_ID,
+    query: { enabled: Boolean(address) },
   });
 
-  const ownsNFT = isConnected && balance && Number(balance) > 0;
+  const celoNFT = useReadContract({
+    address: CELO_CONTRACT,
+    abi: hekimaAbi,
+    functionName: "balanceOf",
+    args: [address ?? "0x"],
+    chainId: CELO_CHAIN_ID,
+    query: { enabled: Boolean(address) },
+  });
+
+  const usdcNonce = useReadContract({
+    address: USDC_ADDRESS,
+    abi: usdcAbi,
+    functionName: "nonces",
+    args: [address ?? "0x"],
+    chainId: CELO_CHAIN_ID,
+    query: { enabled: Boolean(address) },
+  });
+
+  useEffect(() => {
+    if (minted) {
+      celoNFT.refetch?.();
+    }
+  }, [minted]);
+
+  const ownsNFT =
+    isConnected && (Number(baseNFT.data) > 0 || Number(celoNFT.data) > 0);
+
+  const handlePermitAndMint = async () => {
+    if (!address || chain?.id !== CELO_CHAIN_ID || usdcNonce.data == null) return;
+
+    const deadline = Math.floor(Date.now() / 1000) + 600; // 10 min
+
+    const domain = {
+      name: "USD Coin",
+      version: "2",
+      chainId: CELO_CHAIN_ID,
+      verifyingContract: USDC_ADDRESS,
+    };
+
+    const types = {
+      Permit: [
+        { name: "owner", type: "address" },
+        { name: "spender", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "nonce", type: "uint256" },
+        { name: "deadline", type: "uint256" },
+      ],
+    };
+
+    const message = {
+      owner: address,
+      spender: CELO_CONTRACT,
+      value: PRICE,
+      nonce: usdcNonce.data,
+      deadline,
+    };
+
+    const signature = await signTypedDataAsync({
+      domain,
+      types,
+      message,
+      primaryType: "Permit",
+    });
+
+    const { r, s, v } = splitSig(signature);
+
+    writeContract({
+      address: CELO_CONTRACT,
+      abi: hekimaAbi,
+      functionName: "permitAndMint",
+      args: [1, deadline, v, r, s],
+      chainId: CELO_CHAIN_ID,
+    });
+  };
+
+  const splitSig = (sig: `0x${string}`) => {
+    const r = sig.slice(0, 66);
+    const s = "0x" + sig.slice(66, 130);
+    const v = parseInt(sig.slice(130, 132), 16);
+    return { r, s, v };
+  };
 
   return (
     <div className="min-h-screen pt-[80px] flex flex-col items-center justify-center px-4 pb-10 pt-10">
@@ -66,7 +195,18 @@ export default function Home() {
       </div>
 
       <div className="text-xl text-center text-white space-y-4 mt-8">
-        <p className="max-w-[600px]">In order to read this unique work, you need to purchase an NFT. This costs $13. You&apos;ll need a <a href="https://www.alchemy.com/overviews/web3-wallets" target="_blank" className="underline font-bold">web3 wallet</a>.</p>
+        <p className="max-w-[600px]">
+          In order to read this unique work, you need to purchase an NFT. This
+          costs $13. You&apos;ll need a{" "}
+          <a
+            href="https://www.alchemy.com/overviews/web3-wallets"
+            target="_blank"
+            className="underline font-bold"
+          >
+            web3 wallet
+          </a>
+          .
+        </p>
       </div>
 
       <div className="mt-10 flex flex-col items-center space-y-6 w-full max-w-7xl">
@@ -74,14 +214,30 @@ export default function Home() {
 
         {isConnected && (
           <>
-            {isLoading ? (
+            {baseNFT.isLoading || celoNFT.isLoading ? (
               <p className="text-lg">Checking NFT ownership...</p>
             ) : ownsNFT ? (
               <div className="w-full mt-10 px-4">
                 <PDFViewer fileUrl="/wisdom/hekima.pdf" />
               </div>
             ) : (
-              <p className="text-lg">You do not own the required NFT yet.</p>
+              <div className="text-center">
+                {isMinting ? (
+                  <p className="text-lg">Minting your NFT...</p>
+                ) : (
+                  <>
+                    <p className="text-lg mb-4">
+                      You do not own the required NFT yet.
+                    </p>
+                    <button
+                      onClick={handlePermitAndMint}
+                      className="px-6 py-2 text-white bg-blue-600 hover:bg-blue-700 rounded"
+                    >
+                      Mint for 13 USDC on Celo
+                    </button>
+                  </>
+                )}
+              </div>
             )}
           </>
         )}
