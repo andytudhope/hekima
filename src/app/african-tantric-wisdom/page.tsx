@@ -27,6 +27,10 @@ export default function AfricanTantricWisdomPage() {
             <PDFViewer fileUrl="/wisdom/African_Tantra_Words.pdf" />
         </div>
 
+        <div>
+          <iframe className="w-full h-[350px] md:h-[460px]" src="https://www.youtube-nocookie.com/embed/8bZec2WAoAA?si=sRpAZhEghwMHzY4A" title="A Conversation with Sister Tibebwa"  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" referrerPolicy="strict-origin-when-cross-origin" allowFullScreen></iframe>
+        </div>
+
       </div>
     );
   }
